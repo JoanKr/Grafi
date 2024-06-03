@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar System</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/loaders/OBJLoader.js"></script>
+    <script>
+        // Setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+        // Sun
+        const sunTexture = new THREE.TextureLoader().load('sun.jpg');
+        const sunGeometry = new THREE.SphereGeometry(5, 32, 32);
+        const sunMaterial = new THREE.MeshBasicMaterial({ map: sunTexture });
+        const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+        scene.add(sun);
+
+        // Planets Data
+        const planets = [
+            { name: 'mercury', size: 1, distance: 10, speed: 0.002 },
+            { name: 'venus', size: 1.5, distance: 20, speed: 0.001 },
+            { name: 'earth', size: 1.5, distance: 30, speed: 0.00075 },
+            { name: 'mars', size: 1.2, distance: 40, speed: 0.0005 },
+            { name: 'jupiter', size: 3, distance: 50, speed: 0.0004 },
+            { name: 'saturn', size: 2.7, distance: 60, speed: 0.0003 },
+            { name: 'uranus', size: 2.5, distance: 70, speed: 0.0002 },
+            { name: 'neptune', size: 2.5, distance: 80, speed: 0.0001 }
+        ];
+
+        const planetMeshes = [];
+
+        planets.forEach(planet => {
+            const texture = new THREE.TextureLoader().load(`${planet.name}.jpg`);
+            const geometry = new THREE.SphereGeometry(planet.size, 32, 32);
+            const material = new THREE.MeshBasicMaterial({ map: texture });
+            const mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+            planetMeshes.push({ mesh, distance: planet.distance, speed: planet.speed });
+        });
+
+        // UFO
+        const objLoader = new THREE.OBJLoader();
+        let ufo;
+        objLoader.load('ufo.obj', (object) => {
+            const material = new THREE.MeshLambertMaterial({ color: 0x808080, side: THREE.DoubleSide }); // Gray material with double side
+            object.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                    child.material = material;
+                }
+            });
+            ufo = object;
+            ufo.scale.set(5, 5, 5); // Increase the size of the UFO
+            ufo.position.set(0, 10, 0); // Position above the solar system but closer to camera
+            scene.add(ufo);
+        });
+
+        // Camera position
+        camera.position.z = 50;
+
+        // Add basic light
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        // Add directional light for better shading
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+
+        // Add point light near the UFO for better illumination
+        const pointLight = new THREE.PointLight(0xffffff, 1, 50);
+        pointLight.position.set(0, 10, 10);
+        scene.add(pointLight);
+
+        // Animation
+        const animate = function () {
+            requestAnimationFrame(animate);
+
+            // Rotate Sun
+            sun.rotation.y += 0.005;
+
+            // Rotate and orbit planets
+            planetMeshes.forEach((planetMesh, index) => {
+                planetMesh.mesh.rotation.y += 0.01;
+                const angle = Date.now() * planetMesh.speed;
+                planetMesh.mesh.position.x = planetMesh.distance * Math.cos(angle);
+                planetMesh.mesh.position.z = planetMesh.distance * Math.sin(angle);
+            });
+
+            // Orbit UFO above the solar system
+            if (ufo) {
+                const ufoAngle = Date.now() * 0.0005; // Slower orbit speed for the UFO
+                ufo.position.x = 20 * Math.cos(ufoAngle);
+                ufo.position.z = 20 * Math.sin(ufoAngle);
+                ufo.rotation.y += 0.01; // Rotate the UFO around its own axis
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        };
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
