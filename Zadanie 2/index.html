@@ -1,0 +1,332 @@
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <script type="text/javascript">
+    var gl;
+    var shaderProgram;
+    let uMVMatrix = null;
+
+    function MatrixMul(a, b) //Mnożenie macierzy
+    {
+      c = [
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0
+      ]
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          c[i * 4 + j] = 0.0;
+          for (let k = 0; k < 4; k++) {
+            c[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
+          }
+        }
+      }
+      return c;
+    }
+
+    function createRect2(p1x, p1y, p1z, p2x, p2y, p2z, p3x, p3y, p3z, p4x, p4y, p4z) {
+      let vertexPosition = [p1x, p1y, p1z, p2x, p2y, p2z, p4x, p4y, p4z,  //Pierwszy trójkąt
+        p1x, p1y, p1z, p4x, p4y, p4z, p3x, p3y, p3z]; //Drugi trójkąt
+
+      return vertexPosition;
+    }
+
+    function createRectCoords(mu, mv, dau, dav, dbu, dbv) {
+      p1u = mu; p1v = mv;
+      p2u = mu + dau; p2v = mv + dav;
+      p3u = mu + dbu; p3v = mv + dbv;
+      p4u = mu + dau + dbu; p4v = mv + dav + dbv;
+
+      let vertexCoord = [p1u, p1v, p2u, p2v, p4u, p4v,  //Pierwszy trójkąt
+        p1u, p1v, p4u, p4v, p3u, p3v]; //Drugi trójkąt
+
+      return vertexCoord;
+    }
+
+    function createRectCoords2(p1u, p1v, p2u, p2v, p3u, p3v, p4u, p4v) {
+      let vertexCoord = [p1u, p1v, p2u, p2v, p4u, p4v,  //Pierwszy trójkąt
+        p1u, p1v, p4u, p4v, p3u, p3v]; //Drugi trójkąt
+
+      return vertexCoord;
+    }
+
+    function createRectColor(r, g, b) {
+      let vertexColor = [r, g, b, r, g, b, r, g, b,  //Pierwszy trójkąt
+        r, g, b, r, g, b, r, g, b]; //Drugi trójkąt
+
+      return vertexColor;
+    }
+    var planets = [];
+
+    function startGL() {
+      let canvas = document.getElementById("canvas3D");
+      gl = canvas.getContext("experimental-webgl");
+      gl.viewportWidth = canvas.width;
+      gl.viewportHeight = canvas.height;
+
+      const vertextShaderSource = `
+        precision highp float;
+        attribute vec3 aVertexPosition; 
+        attribute vec3 aVertexColor;
+        attribute vec2 aVertexCoords;
+        uniform mat4 uMVMatrix;
+        uniform mat4 uPMatrix;
+        varying vec3 vColor;
+        varying vec2 vTexUV;
+        void main(void) {
+          gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+          vColor = aVertexColor;
+          vTexUV = aVertexCoords;
+        }
+      `;
+      const fragmentShaderSource = `
+        precision highp float;
+        varying vec3 vColor;
+        varying vec2 vTexUV;
+        uniform sampler2D uSampler;
+        void main(void) {
+          gl_FragColor = texture2D(uSampler,vTexUV)*vec4(vColor,1.0);
+        }
+      `;
+      let fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+      let vertexShader = gl.createShader(gl.VERTEX_SHADER);
+      gl.shaderSource(fragmentShader, fragmentShaderSource);
+      gl.shaderSource(vertexShader, vertextShaderSource);
+      gl.compileShader(fragmentShader);
+      gl.compileShader(vertexShader);
+      if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+        alert(gl.getShaderInfoLog(fragmentShader));
+        return null;
+      }
+      if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+        alert(gl.getShaderInfoLog(vertexShader));
+        return null;
+      }
+
+      shaderProgram = gl.createProgram();
+      gl.attachShader(shaderProgram, vertexShader);
+      gl.attachShader(shaderProgram, fragmentShader);
+      gl.linkProgram(shaderProgram);
+      if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) alert("Could not initialise shaders");
+
+      createPlanet(0.0, 2.0, "sun.jpg", 0, 0.0, 0.0005);
+      createPlanet(0.0, 0.1, "mercury.jpg", 3.0, 1.185, 0.01);
+      createPlanet(0.0, 0.25, "venus.jpg", 5.0, 0.875, 0);
+      createPlanet(0.0, 0.25, "earth.png", 7.0, 0.745, 0);
+      createPlanet(0.0, 0.15, "mars.jpg", 9.0, 0.6025, 0);
+      createPlanet(0.0, 0.4, "jupiter.jpg", 12.0, 0.3275, 0);
+      createPlanet(0.0, 0.375, "saturn.jpg", 15.0, 0.2425, 0);
+      createPlanet(0.0, 0.275, "uranus.jpg", 18.0, 0.17, 0);
+      createPlanet(0.0, 0.275, "neptun.jpg", 21.0, 0.135, 0);
+
+      animate();
+    }
+
+    function createPlanet(shift, radius, texture_src, orbitRadius, orbitSpeed, rotationSpeed) {
+      let vertexPosition = [];
+      let stepElevation = 90 / 6;
+      let stepAngle = 360 / 12;
+      for (let elevation = -90; elevation < 90; elevation += stepElevation) {
+        let radiusXZ = radius * Math.cos(elevation * Math.PI / 180);
+        let radiusY = radius * Math.sin(elevation * Math.PI / 180);
+
+        let radiusXZ2 = radius * Math.cos((elevation + stepElevation) * Math.PI / 180);
+        let radiusY2 = radius * Math.sin((elevation + stepElevation) * Math.PI / 180);
+
+        for (let angle = 0; angle < 360; angle += stepAngle) {
+          let px1 = shift + radiusXZ * Math.cos(angle * Math.PI / 180);
+          let py1 = radiusY;
+          let pz1 = radiusXZ * Math.sin(angle * Math.PI / 180);
+
+          let px2 = shift + radiusXZ * Math.cos((angle + stepAngle) * Math.PI / 180);
+          let py2 = radiusY;
+          let pz2 = radiusXZ * Math.sin((angle + stepAngle) * Math.PI / 180);
+
+          let px3 = shift + radiusXZ2 * Math.cos(angle * Math.PI / 180);
+          let py3 = radiusY2;
+          let pz3 = radiusXZ2 * Math.sin(angle * Math.PI / 180);
+
+          let px4 = shift + radiusXZ2 * Math.cos((angle + stepAngle) * Math.PI / 180);
+          let py4 = radiusY2;
+          let pz4 = radiusXZ2 * Math.sin((angle + stepAngle) * Math.PI / 180);
+
+          vertexPosition.push(...createRect2(px1, py1, pz1, px2, py2, pz2, px3, py3, pz3, px4, py4, pz4));
+        }
+      }
+
+      let vertexPositionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexPosition), gl.STATIC_DRAW);
+      vertexPositionBuffer.itemSize = 3;
+      vertexPositionBuffer.numItems = vertexPosition.length / 9;
+
+      let vertexColor = [];
+
+      for (let elevation = -90; elevation < 90; elevation += stepElevation) {
+        for (let angle = 0;  angle < 360; angle += stepAngle) {
+          vertexColor.push(...createRectColor(1.0, 1.0, 1.0));
+        }
+      }
+
+      let vertexColorBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexColor), gl.STATIC_DRAW);
+      vertexColorBuffer.itemSize = 3;
+      vertexColorBuffer.numItems = vertexColor.length / 9;
+
+      let vertexCoords = [];
+
+      for (let elevation = -90; elevation < 90; elevation += stepElevation) {
+        for (let angle = 0; angle < 360; angle += stepAngle) {
+          vertexCoords.push(...createRectCoords(0, 0, 1, 0, 0, 1));
+        }
+      }
+
+      let vertexCoordsBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vertexCoordsBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexCoords), gl.STATIC_DRAW);
+      vertexCoordsBuffer.itemSize = 2;
+      vertexCoordsBuffer.numItems = vertexCoords.length / 6;
+
+      let textureBuffer = gl.createTexture();
+      var textureImg = new Image();
+      textureImg.onload = function () {
+        gl.bindTexture(gl.TEXTURE_2D, textureBuffer);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textureImg);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      }
+      textureImg.src = texture_src;
+
+      let planet = {
+        buffer: vertexPositionBuffer,
+        colorBuffer: vertexColorBuffer,
+        coordsBuffer: vertexCoordsBuffer,
+        texture: textureBuffer,
+        orbitRadius: orbitRadius,
+        orbitSpeed: orbitSpeed,
+        rotationSpeed: rotationSpeed,
+        angle: 0,
+        rotationAngle: 0,
+        shift: shift
+      };
+
+      planets.push(planet);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      drawScene();
+    }
+
+    function drawScene() {
+      gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.useProgram(shaderProgram);
+
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LEQUAL);
+
+      let aspect = gl.viewportWidth / gl.viewportHeight;
+      let fov = 45.0 * Math.PI / 180.0;
+      let zFar = 100.0;
+      let zNear = 0.1;
+      let uPMatrix = [
+        1.0 / (aspect * Math.tan(fov / 2)), 0, 0, 0,
+        0, 1.0 / (Math.tan(fov / 2)), 0, 0,
+        0, 0, -(zFar + zNear) / (zFar - zNear), -1,
+        0, 0, -(2 * zFar * zNear) / (zFar - zNear), 0.0,
+      ];
+
+      let uMVMatrix = [
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1
+      ];
+
+      uMVMatrix = MatrixMul(uMVMatrix, [
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        tx, ty, tz, 1
+      ]);
+
+      planets.forEach(planet => {
+        planet.angle += planet.orbitSpeed * 0.01;
+        planet.rotationAngle += planet.rotationSpeed * 0.1;
+
+        let orbitTranslation = [
+          1, 0, 0, 0,
+          0, 1, 0, 0,
+          0, 0, 1, 0,
+          planet.orbitRadius * Math.cos(planet.angle), 0, planet.orbitRadius * Math.sin(planet.angle), 1
+        ];
+
+        let rotationMatrix = [
+          Math.cos(planet.rotationAngle), 0, Math.sin(planet.rotationAngle), 0,
+          0, 1, 0, 0,
+          -Math.sin(planet.rotationAngle), 0, Math.cos(planet.rotationAngle), 0,
+          0, 0, 0, 1
+        ];
+
+        let planetMVMatrix = MatrixMul(uMVMatrix, orbitTranslation);
+        planetMVMatrix = MatrixMul(planetMVMatrix, rotationMatrix);
+
+        gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "uPMatrix"), false, new Float32Array(uPMatrix));
+        gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram, "uMVMatrix"), false, new Float32Array(planetMVMatrix));
+
+        gl.enableVertexAttribArray(gl.getAttribLocation(shaderProgram, "aVertexPosition"));
+        gl.bindBuffer(gl.ARRAY_BUFFER, planet.buffer);
+        gl.vertexAttribPointer(gl.getAttribLocation(shaderProgram, "aVertexPosition"), planet.buffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.enableVertexAttribArray(gl.getAttribLocation(shaderProgram, "aVertexColor"));
+        gl.bindBuffer(gl.ARRAY_BUFFER, planet.colorBuffer);
+        gl.vertexAttribPointer(gl.getAttribLocation(shaderProgram, "aVertexColor"), planet.colorBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.enableVertexAttribArray(gl.getAttribLocation(shaderProgram, "aVertexCoords"));
+        gl.bindBuffer(gl.ARRAY_BUFFER, planet.coordsBuffer);
+        gl.vertexAttribPointer(gl.getAttribLocation(shaderProgram, "aVertexCoords"), planet.coordsBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, planet.texture);
+        gl.uniform1i(gl.getUniformLocation(shaderProgram, "uSampler"), 0);
+
+        gl.drawArrays(gl.TRIANGLES, 0, planet.buffer.numItems * planet.buffer.itemSize);
+      });
+    }
+
+    var angleZ = 0.0;
+    var angleY = 0.0;
+    var angleX = 0.0;
+    var tx = 0.0;
+    var ty = 0.0;
+    var tz = -25.0;  // Zwiększona wartość początkowa, aby lepiej widzieć układ słoneczny
+
+    function handlekeydown(e) {
+      const stepSize = 0.5; // Rozmiar kroku przesunięcia
+      if (e.keyCode == 68) {  // D
+        tx -= stepSize;
+      }
+      if (e.keyCode == 65) {  // A
+        tx += stepSize;
+      }
+      if (e.keyCode == 87) {  // W
+        tz += stepSize;
+      }
+      if (e.keyCode == 83) {  // S
+        tz -= stepSize;
+      }
+    }
+
+  </script>
+</head>
+
+<body onload="startGL()" onkeydown="handlekeydown(event)">
+  <canvas id="canvas3D" width="2000" height="800" style="border: solid black 1px; background-color: #000000;"></canvas>
+</body>
+
+</html>
